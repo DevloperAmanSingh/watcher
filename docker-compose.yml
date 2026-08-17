@@ -1,0 +1,47 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    container_name: watcher-timescaledb
+    environment:
+      POSTGRES_USER: ${DB_USER:-watcher}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-watcher}
+      POSTGRES_DB: ${DB_DATABASE:-watcher}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-watcher} -d ${DB_DATABASE:-watcher}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: watcher-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: watcher-mailpit
+    ports:
+      - "${MAIL_PORT:-1025}:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  timescaledb-data:
+  redis-data:
