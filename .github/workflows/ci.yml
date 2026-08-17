@@ -48,9 +48,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.62.2
+      # Built from source with the runner's toolchain, exactly as the Makefile
+      # does locally. A prebuilt binary refuses to run when the Go version it
+      # was compiled with is older than the one go.mod targets.
+      - name: Lint
+        run: make lint
 
   test:
     name: Test
@@ -87,7 +89,9 @@ jobs:
       DB_DATABASE: watcher
       REDIS_HOST: 127.0.0.1:6379
       REDIS_DB: "0"
+      GOOSE_DRIVER: postgres
       GOOSE_DBSTRING: postgresql://watcher:watcher@127.0.0.1:5432/watcher?sslmode=disable
+      GOOSE_MIGRATION_DIR: migrations
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -95,6 +99,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - name: Apply migrations
-        run: go run github.com/pressly/goose/v3/cmd/goose@v3.24.1 -dir migrations postgres "$GOOSE_DBSTRING" up
+        run: make migrate
       - name: Test
         run: go test -race -count=1 ./...

@@ -69,17 +69,24 @@ reset:
 logs:
 	docker compose logs -f
 
+# goose reads GOOSE_DRIVER, GOOSE_DBSTRING and GOOSE_MIGRATION_DIR from the
+# environment. Passing the driver and DSN positionally as well makes goose read
+# the DSN as a subcommand name and fail.
+GOOSE_ENV := GOOSE_DRIVER=$(or $(GOOSE_DRIVER),postgres) \
+             GOOSE_DBSTRING="$(GOOSE_DBSTRING)" \
+             GOOSE_MIGRATION_DIR=$(or $(GOOSE_MIGRATION_DIR),migrations)
+
 ## migrate: apply all pending migrations
 migrate:
-	$(GOOSE) -dir migrations postgres "$(GOOSE_DBSTRING)" up
+	$(GOOSE_ENV) $(GOOSE) up
 
 ## migrate-down: roll back the most recent migration
 migrate-down:
-	$(GOOSE) -dir migrations postgres "$(GOOSE_DBSTRING)" down
+	$(GOOSE_ENV) $(GOOSE) down
 
 ## migrate-status: show migration state
 migrate-status:
-	$(GOOSE) -dir migrations postgres "$(GOOSE_DBSTRING)" status
+	$(GOOSE_ENV) $(GOOSE) status
 
 ## dev: bring up the stack and apply migrations
 dev: up migrate
