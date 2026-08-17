@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"github.com/DevloperAmanSingh/watcher/enums"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"time"
 )
 
 type IncidentRepository interface {
 	Add(ctx context.Context, urlId int) error
-	Resolve(ctx context.Context, incidentId int) error
-	Count(ctx context.Context, urlId int, numberOfDays int, dateType enums.DateType) (time.Time, int, error)
+	Resolve(ctx context.Context, urlId int) error
+	// Count reports how many incidents were opened for urlId within the
+	// trailing window of `amount` dateType units ending now.
+	Count(ctx context.Context, urlId int, amount int, dateType enums.DateType) (int, error)
 }
 
 type incidentRepository struct {
@@ -38,17 +39,26 @@ func (inc incidentRepository) Resolve(ctx context.Context, urlId int) error {
 	return nil
 }
 
-func (inc incidentRepository) Count(tx context.Context, urlId int, numberOfDays int, dateType enums.DateType) (time.Time, int, error) {
-	var incidentCount int
-	var bucket time.Time
-	date := fmt.Sprintf("%v %v", numberOfDays, dateType.ToString())
-
-	sql := "SELECT time_bucket($1, time) AS bucket, count(*) AS incident_count FROM incidents WHERE url_id=$2 GROUP BY bucket"
-	err := inc.pool.QueryRow(tx, sql, date, urlId).Scan(&bucket, &incidentCount)
-	if err != nil {
-		return time.Time{}, 0, err
+// Count returns how many incidents were opened for a URL within the trailing
+// window ending now, expressed as an amount of dateType units.
+func (inc incidentRepository) Count(ctx context.Context, urlId int, amount int, dateType enums.DateType) (int, error) {
+	unit := dateType.ToString()
+	if unit == "" {
+		return 0, fmt.Errorf("invalid date type %q", string(dateType))
 	}
-	return bucket, incidentCount, nil
+	if amount <= 0 {
+		return 0, fmt.Errorf("window amount must be positive, got %d", amount)
+	}
+
+	// The window has to be applied in the query. Bucketing alone does not
+	// restrict which rows are counted, it only groups them.
+	sql := `SELECT count(*) FROM incidents WHERE url_id = $1 AND time >= NOW() - $2::interval`
+
+	var count int
+	if err := inc.pool.QueryRow(ctx, sql, urlId, fmt.Sprintf("%d %s", amount, unit)).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func NewIncidentRepository(pool *pgxpool.Pool) IncidentRepository {

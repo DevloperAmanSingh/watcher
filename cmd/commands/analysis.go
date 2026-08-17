@@ -88,14 +88,10 @@ func Analysis(ctx context.Context, logger *slog.Logger, urlId int) {
 
 	periods := []int{1, 7, 30, 365}
 	for _, days := range periods {
-		_, incidentCount, err := incidentRepository.Count(ctx, url.Id, days, enums.Day)
+		incidentCount, err := incidentRepository.Count(ctx, url.Id, days, enums.Day)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				incidentCount = 0
-			} else {
-				logger.Error("unable to fetch incident count",
-					"error", err, "url_id", url.Id, "days", days)
-			}
+			logger.Error("unable to fetch incident count",
+				"error", err, "url_id", url.Id, "days", days)
 		}
 		var label string
 		if days == 1 {
