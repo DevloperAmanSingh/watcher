@@ -30,6 +30,14 @@ type UrlRepository interface {
 	Delete(ctx context.Context, Id int) error
 	FindById(ctx context.Context, Id int) (Url, error)
 	UpdateStatus(ctx context.Context, Id int, status enums.SiteHealth) error
+	// RecordFailure increments the consecutive failure counter and returns its
+	// new value. The increment and the read are one statement, so concurrent
+	// callers each observe a distinct count and exactly one sees any given
+	// threshold.
+	RecordFailure(ctx context.Context, Id int) (int, error)
+	// ResetFailures clears the counter and reports whether it had been
+	// non-zero, so a recovery can be distinguished from a steady healthy run.
+	ResetFailures(ctx context.Context, Id int) (bool, error)
 }
 type urlRepository struct {
 	pool *pgxpool.Pool
@@ -211,6 +219,28 @@ func (ur urlRepository) UpdateStatus(ctx context.Context, Id int, status enums.S
 		return err
 	}
 	return nil
+}
+
+func (ur urlRepository) RecordFailure(ctx context.Context, id int) (int, error) {
+	sql := `UPDATE urls SET consecutive_failures = consecutive_failures + 1
+	        WHERE id = $1 RETURNING consecutive_failures`
+
+	var failures int
+	if err := ur.pool.QueryRow(ctx, sql, id).Scan(&failures); err != nil {
+		return 0, err
+	}
+	return failures, nil
+}
+
+func (ur urlRepository) ResetFailures(ctx context.Context, id int) (bool, error) {
+	sql := `UPDATE urls SET consecutive_failures = 0
+	        WHERE id = $1 AND consecutive_failures > 0`
+
+	tag, err := ur.pool.Exec(ctx, sql, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func NewUrlRepository(pool *pgxpool.Pool) UrlRepository {

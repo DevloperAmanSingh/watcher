@@ -32,6 +32,25 @@ func (sl *PingSuccessfulListener) Handle(event core.Event) {
 		return
 	}
 
+	urlStatusRepo := database.NewUrlStatusRepository(sl.DB)
+	if statusErr := urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy); statusErr != nil {
+		sl.logger.Error("failed to record check result",
+			"error", statusErr, "url_id", e.UrlId, "healthy", e.Healthy)
+	}
+
+	// A success ends any run of failures, whether or not it was long enough to
+	// have opened an incident. Without this the counter would accumulate across
+	// unrelated blips and eventually cross the threshold on its own.
+	if _, resetErr := urlRepo.ResetFailures(sl.ctx, url.Id); resetErr != nil {
+		sl.logger.Error("failed to reset consecutive failures",
+			"error", resetErr, "url_id", url.Id, "url", url.Url)
+	}
+
+	if statusErr := urlRepo.UpdateStatus(sl.ctx, e.UrlId, enums.Healthy); statusErr != nil {
+		sl.logger.Error("failed to update url status",
+			"error", statusErr, "url_id", e.UrlId, "status", enums.Healthy.ToString())
+	}
+
 	// As on the outage path, the write decides the transition rather than the
 	// status read: whichever concurrent result actually closes the open
 	// incident owns the recovery notification, and the rest stay silent.
@@ -54,20 +73,6 @@ func (sl *PingSuccessfulListener) Handle(event core.Event) {
 			sl.logger.Error("failed to send recovery alert",
 				"error", mailErr, "url_id", url.Id, "url", url.Url)
 		}
-	}
-
-	urlStatusRepo := database.NewUrlStatusRepository(sl.DB)
-	if err = urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy); err != nil {
-		sl.logger.Error("failed to record check result",
-			"error", err, "url_id", e.UrlId, "healthy", e.Healthy)
-		return
-	}
-
-	urlRepository := database.NewUrlRepository(sl.DB)
-	if err = urlRepository.UpdateStatus(sl.ctx, e.UrlId, enums.Healthy); err != nil {
-		sl.logger.Error("failed to update url status",
-			"error", err, "url_id", e.UrlId, "status", enums.Healthy.ToString())
-		return
 	}
 }
 

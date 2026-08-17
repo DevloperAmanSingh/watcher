@@ -6,6 +6,7 @@ import (
 	"github.com/DevloperAmanSingh/watcher/core"
 	"github.com/DevloperAmanSingh/watcher/database"
 	"github.com/DevloperAmanSingh/watcher/enums"
+	"github.com/DevloperAmanSingh/watcher/env"
 	"github.com/DevloperAmanSingh/watcher/events"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
@@ -31,6 +32,37 @@ func (sl *PingUnSuccessfulListener) Handle(event core.Event) {
 	if err != nil {
 		sl.logger.Error("failed to find url", "error", err, "url_id", e.UrlId)
 		return
+	}
+
+	// Record the observation first. A check that does not cross the alert
+	// threshold is still a data point, and uptime reporting is computed from
+	// this series rather than from incidents.
+	urlStatusRepo := database.NewUrlStatusRepository(sl.DB)
+	if statusErr := urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy); statusErr != nil {
+		sl.logger.Error("failed to record check result",
+			"error", statusErr, "url_id", e.UrlId, "healthy", e.Healthy)
+	}
+
+	// One failed check is not an outage. The counter is incremented and read in
+	// a single statement, so concurrent results for this URL are serialized by
+	// the row lock and each caller sees a distinct value.
+	failures, err := urlRepo.RecordFailure(sl.ctx, url.Id)
+	if err != nil {
+		sl.logger.Error("failed to record consecutive failure",
+			"error", err, "url_id", url.Id, "url", url.Url)
+		return
+	}
+
+	threshold := failureThreshold()
+	if failures < threshold {
+		sl.logger.Debug("failure below alert threshold",
+			"url_id", url.Id, "url", url.Url, "failures", failures, "threshold", threshold)
+		return
+	}
+
+	if statusErr := urlRepo.UpdateStatus(sl.ctx, e.UrlId, enums.UnHealthy); statusErr != nil {
+		sl.logger.Error("failed to update url status",
+			"error", statusErr, "url_id", e.UrlId, "status", enums.UnHealthy.ToString())
 	}
 
 	// Opening the incident is what decides whether this result is the
@@ -61,20 +93,17 @@ func (sl *PingUnSuccessfulListener) Handle(event core.Event) {
 				"error", mailErr, "url_id", url.Id, "url", url.Url)
 		}
 	}
+}
 
-	urlRepository := database.NewUrlRepository(sl.DB)
-	if err = urlRepository.UpdateStatus(sl.ctx, e.UrlId, enums.UnHealthy); err != nil {
-		sl.logger.Error("failed to update url status",
-			"error", err, "url_id", e.UrlId, "status", enums.UnHealthy.ToString())
-		return
+// failureThreshold is how many consecutive failed checks must be observed
+// before a URL is declared down. One is the previous behavior: alert on the
+// first failure.
+func failureThreshold() int {
+	threshold := env.FetchInt("FAILURE_THRESHOLD", 3)
+	if threshold < 1 {
+		return 1
 	}
-
-	urlStatusRepo := database.NewUrlStatusRepository(sl.DB)
-	if err = urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy); err != nil {
-		sl.logger.Error("failed to record check result",
-			"error", err, "url_id", e.UrlId, "healthy", e.Healthy)
-		return
-	}
+	return threshold
 }
 
 func NewPingUnSuccessfulListener(ctx context.Context, logger *slog.Logger, db *pgxpool.Pool) *PingUnSuccessfulListener {
