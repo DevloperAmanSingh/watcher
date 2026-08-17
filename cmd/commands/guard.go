@@ -18,8 +18,7 @@ type GuardCommand struct {
 }
 
 func (mc *GuardCommand) Action(ctx context.Context, cmd CommandContext) error {
-	Init(ctx, mc.Log)
-	return nil
+	return Init(ctx, mc.Log)
 }
 
 func NewGuardCommand(logger *slog.Logger) *GuardCommand {
@@ -35,11 +34,11 @@ func NewGuardCommand(logger *slog.Logger) *GuardCommand {
 	}
 }
 
-func Init(ctx context.Context, logger *slog.Logger) {
+func Init(ctx context.Context, logger *slog.Logger) error {
 	redisClient := InitiateRedis(ctx, logger)
 	pool := InitiateDB(ctx, logger)
-	initiateOrchestrator(ctx, redisClient, pool)
 	fmt.Println("Watcher is running")
+	return initiateOrchestrator(ctx, redisClient, pool)
 }
 
 func InitiateRedis(ctx context.Context, logger *slog.Logger) *redis.Client {
@@ -86,7 +85,7 @@ func InitiateDB(ctx context.Context, logger *slog.Logger) *pgxpool.Pool {
 	return pool
 }
 
-func initiateOrchestrator(ctx context.Context, redisClient *redis.Client, pool *pgxpool.Pool) {
+func initiateOrchestrator(ctx context.Context, redisClient *redis.Client, pool *pgxpool.Pool) error {
 	newOrchestrator := orchestrator.NewOrchestrator(ctx, redisClient, pool)
 	newOrchestrator.Supervisor.Activate()
 	intervals := []enums.MonitoringFrequency{
@@ -101,5 +100,5 @@ func initiateOrchestrator(ctx context.Context, redisClient *redis.Client, pool *
 	}
 
 	newOrchestrator.AddIntervals(intervals)
-	newOrchestrator.Start()
+	return newOrchestrator.Start()
 }

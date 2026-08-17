@@ -18,8 +18,14 @@ func NewUrlQueryFilter() UrlQueryFilter {
 	return UrlQueryFilter{}
 }
 
+// DefaultPageSize is the batch size Each uses when walking the table.
+const DefaultPageSize = 500
+
 type UrlRepository interface {
 	FetchAll(ctx context.Context, limit int, offset int, filter UrlQueryFilter) ([]Url, error)
+	// Each invokes fn once per URL matching filter, paging through the table
+	// so callers that need every row never depend on a caller-supplied limit.
+	Each(ctx context.Context, filter UrlQueryFilter, fn func(Url) error) error
 	Add(ctx context.Context, url string, httpMethod enums.HttpMethod, frequency enums.MonitoringFrequency, contactEmail string) (int, error)
 	Delete(ctx context.Context, Id int) error
 	FindById(ctx context.Context, Id int) (Url, error)
@@ -58,6 +64,9 @@ func (ur urlRepository) FetchAll(ctx context.Context, limit int, offset int, fil
 		sql += " WHERE " + strings.Join(whereClauses, " AND ")
 	}
 
+	// LIMIT/OFFSET without a total order returns arbitrary rows, so paging
+	// could repeat or skip URLs between calls.
+	sql += " ORDER BY id"
 	sql += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argPosition, argPosition+1)
 	args = append(args, limit, offset)
 
@@ -112,6 +121,25 @@ func (ur urlRepository) FetchAll(ctx context.Context, limit int, offset int, fil
 		}
 	}
 	return urls, nil
+}
+
+func (ur urlRepository) Each(ctx context.Context, filter UrlQueryFilter, fn func(Url) error) error {
+	for offset := 0; ; offset += DefaultPageSize {
+		page, err := ur.FetchAll(ctx, DefaultPageSize, offset, filter)
+		if err != nil {
+			return err
+		}
+
+		for _, url := range page {
+			if err := fn(url); err != nil {
+				return err
+			}
+		}
+
+		if len(page) < DefaultPageSize {
+			return nil
+		}
+	}
 }
 
 func (ur urlRepository) Add(ctx context.Context, url string, httpMethod enums.HttpMethod, frequency enums.MonitoringFrequency, contactEmail string) (int, error) {

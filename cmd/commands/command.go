@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"fmt"
+
 	"github.com/DevloperAmanSingh/watcher/core"
 	"github.com/DevloperAmanSingh/watcher/database"
 	"github.com/DevloperAmanSingh/watcher/enums"
@@ -160,18 +162,20 @@ func (b *BaseCommand) Arguments() []ArgumentContext { return b.args }
 func (b *BaseCommand) Flags() []FlagContext         { return b.flags }
 
 func RefreshRedisInterval(ctx context.Context, redisClient *redis.Client, pool *pgxpool.Pool, frequency enums.MonitoringFrequency) error {
-	urls, err := database.NewUrlRepository(pool).FetchAll(ctx, 10, 0, database.UrlQueryFilter{
-		Frequency: frequency,
+	seconds := frequency.ToSeconds()
+
+	if err := redisClient.Del(ctx, core.FormatRedisList(seconds)).Err(); err != nil {
+		return fmt.Errorf("clearing work list for %s: %w", frequency.ToString(), err)
+	}
+
+	filter := database.UrlQueryFilter{Frequency: frequency}
+	return database.NewUrlRepository(pool).Each(ctx, filter, func(url database.Url) error {
+		if err := redisClient.LPush(ctx, core.FormatRedisList(seconds), url.Id).Err(); err != nil {
+			return fmt.Errorf("queueing url %d: %w", url.Id, err)
+		}
+		if err := redisClient.HSet(ctx, core.FormatRedisHash(seconds), url.Id, url).Err(); err != nil {
+			return fmt.Errorf("caching url %d: %w", url.Id, err)
+		}
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	redisClient.Del(ctx, core.FormatRedisList(frequency.ToSeconds()))
-
-	for _, url := range urls {
-		redisClient.LPush(ctx, core.FormatRedisList(url.MonitoringFrequency.ToSeconds()), url.Id)
-		redisClient.HSet(ctx, core.FormatRedisHash(url.MonitoringFrequency.ToSeconds()), url.Id, url)
-	}
-	return nil
 }

@@ -57,9 +57,11 @@ func NewOrchestrator(ctx context.Context, rdC *redis.Client, pool *pgxpool.Pool)
 	}
 }
 
-func (o *Orchestrator) Start() {
+func (o *Orchestrator) Start() error {
 	fmt.Println("Orchestrator is running")
-	o.PrefillRedisList(o.ctx)
+	if err := o.PrefillRedisList(o.ctx); err != nil {
+		return fmt.Errorf("prefilling work set: %w", err)
+	}
 	for interval, parentWorker := range o.intervals {
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)
 		o.waitGroup.Add(1)
@@ -79,6 +81,7 @@ func (o *Orchestrator) Start() {
 		}()
 	}
 	o.waitGroup.Wait()
+	return nil
 }
 
 func (o *Orchestrator) AddInterval(interval enums.MonitoringFrequency, worker *worker.ParentWorker) {
@@ -105,18 +108,29 @@ func (o *Orchestrator) Intervals() []int {
 
 func (o *Orchestrator) Stop() {}
 
-func (o *Orchestrator) PrefillRedisList(ctx context.Context) {
-	urls, err := database.NewUrlRepository(o.DB).FetchAll(ctx, 10, 0, database.UrlQueryFilter{})
-	if err != nil {
-		panic(err)
-	}
-
+func (o *Orchestrator) PrefillRedisList(ctx context.Context) error {
 	for _, interval := range o.Intervals() {
-		o.RedisClient.Del(ctx, core.FormatRedisList(interval))
+		if err := o.RedisClient.Del(ctx, core.FormatRedisList(interval)).Err(); err != nil {
+			return fmt.Errorf("clearing work list for interval %d: %w", interval, err)
+		}
 	}
 
-	for _, url := range urls {
-		o.RedisClient.LPush(ctx, core.FormatRedisList(url.MonitoringFrequency.ToSeconds()), url.Id)
-		o.RedisClient.HSet(ctx, core.FormatRedisHash(url.MonitoringFrequency.ToSeconds()), url.Id, url)
+	loaded := 0
+	err := o.UrlRepository.Each(ctx, database.UrlQueryFilter{}, func(url database.Url) error {
+		seconds := url.MonitoringFrequency.ToSeconds()
+		if err := o.RedisClient.LPush(ctx, core.FormatRedisList(seconds), url.Id).Err(); err != nil {
+			return fmt.Errorf("queueing url %d: %w", url.Id, err)
+		}
+		if err := o.RedisClient.HSet(ctx, core.FormatRedisHash(seconds), url.Id, url).Err(); err != nil {
+			return fmt.Errorf("caching url %d: %w", url.Id, err)
+		}
+		loaded++
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+
+	o.Logger.Info("loaded monitored urls into redis", "count", loaded)
+	return nil
 }
