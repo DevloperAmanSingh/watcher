@@ -19,7 +19,11 @@ type PingUnSuccessfulListener struct {
 }
 
 func (sl *PingUnSuccessfulListener) Handle(event core.Event) {
-	e := event.(*events.PingUnSuccessful)
+	e, ok := event.(*events.PingUnSuccessful)
+	if !ok {
+		sl.logger.Error("unexpected event type on ping.unsuccessful", "event", event.Name())
+		return
+	}
 	fmt.Printf("%v is unhealthy, pushing to timescale DB and sending email out \n", e.Url)
 
 	urlRepo := database.NewUrlRepository(sl.DB)

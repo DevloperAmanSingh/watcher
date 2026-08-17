@@ -64,7 +64,7 @@ func (cw *ChildWorker) Work(urlId string) {
 		return
 	}
 
-	request, err := http.NewRequest(url.HttpMethod.ToMethod(), url.Url, nil)
+	request, err := http.NewRequestWithContext(cw.Ctx, url.HttpMethod.ToMethod(), url.Url, nil)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -90,5 +90,4 @@ func (cw *ChildWorker) Work(urlId string) {
 	}
 
 	cw.ParentWorker.Supervisor.WorkPool <- task
-	return
 }

@@ -26,7 +26,6 @@ type CommandContainer struct {
 
 func (cc *CommandContainer) Register(command Command) {
 	cc.Commands = append(cc.Commands, command)
-	return
 }
 
 func (cc *CommandContainer) RegisterAll(logger *slog.Logger) {
@@ -63,16 +62,18 @@ func (cc *CommandContainer) Initiate(logger *slog.Logger) []*cli.Command {
 		for _, flag := range command.Flags() {
 			var transformedFlag cli.Flag
 			if flag.Type == enums.Int {
+				defaultValue, _ := flag.Default.(int)
 				transformedFlag = &cli.IntFlag{
 					Name:  flag.Name,
 					Usage: flag.Usage,
-					Value: flag.Default.(int),
+					Value: defaultValue,
 				}
 			} else {
+				defaultValue, _ := flag.Default.(string)
 				transformedFlag = &cli.StringFlag{
 					Name:  flag.Name,
 					Usage: flag.Usage,
-					Value: flag.Default.(string),
+					Value: defaultValue,
 				}
 			}
 			flags = append(flags, transformedFlag)

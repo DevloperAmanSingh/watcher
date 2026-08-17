@@ -66,7 +66,6 @@ func (pw *ParentWorker) Work() {
 		chunk := urlIds[i:end]
 		pw.WorkPool <- chunk
 	}
-	return
 }
 
 func (pw *ParentWorker) spawnChildWorkers(maxChildWorkers int) {

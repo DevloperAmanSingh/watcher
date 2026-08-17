@@ -71,13 +71,13 @@ func (mc *AddCommand) Action(ctx context.Context, cmd CommandContext) error {
 	pool := InitiateDB(ctx, mc.Log)
 	urlRepository := database.NewUrlRepository(pool)
 
-	parsedHttpMethod, err := enums.ParseHttpMethod(cmd.String("http_method"))
+	parsedHttpMethod, err := enums.ParseHttpMethod(httpMethod)
 	if err != nil {
 		fmt.Printf("Error parsing http method: %v", err)
 		return err
 	}
 
-	parsedFrequency, err := enums.ParseMonitoringFrequency(cmd.String("frequency"))
+	parsedFrequency, err := enums.ParseMonitoringFrequency(frequency)
 	if err != nil {
 		fmt.Printf("Error parsing frequency: %v", err)
 		return err
@@ -85,10 +85,10 @@ func (mc *AddCommand) Action(ctx context.Context, cmd CommandContext) error {
 
 	id, err := urlRepository.Add(
 		ctx,
-		cmd.String("url"),
+		url,
 		parsedHttpMethod,
 		parsedFrequency,
-		cmd.String("contact_email"),
+		contactEmail,
 	)
 
 	if err != nil {

@@ -30,7 +30,7 @@ func FetchString(key string, fallback ...string) string {
 
 func FetchInt(key string, fallback ...int) int {
 	response, ok := os.LookupEnv(key)
-	if ok == false && len(fallback) <= 0 {
+	if !ok && len(fallback) == 0 {
 		panic(fmt.Sprintf("environment variable %s is not set and no fallback provided", key))
 	}
 
