@@ -33,13 +33,23 @@ func (sl *PingUnSuccessfulListener) Handle(event core.Event) {
 		return
 	}
 
-	//check if the previous status is healthy, if it is healthy, send email
-	if url.Status == enums.Healthy {
-		incidentRepo := database.NewIncidentRepository(sl.DB)
-		if incidentErr := incidentRepo.Add(sl.ctx, url.Id); incidentErr != nil {
-			sl.logger.Error("failed to open incident",
-				"error", incidentErr, "url_id", url.Id, "url", url.Url)
-		}
+	// Opening the incident is what decides whether this result is the
+	// transition, not the status read above. Between that read and here, a
+	// concurrent result for the same URL may already have opened the incident;
+	// only the caller whose insert actually created a row owns the alert.
+	//
+	// This is the whole of the exactly-once guarantee: the pipeline may
+	// deliver a result more than once, but the notification is emitted by
+	// whichever delivery won the insert, and by no other.
+	incidentRepo := database.NewIncidentRepository(sl.DB)
+	opened, err := incidentRepo.Open(sl.ctx, url.Id)
+	if err != nil {
+		sl.logger.Error("failed to open incident",
+			"error", err, "url_id", url.Id, "url", url.Url)
+	}
+
+	if opened {
+		sl.logger.Info("site went down", "url_id", url.Id, "url", url.Url)
 
 		if mailErr := core.SendEmail(core.SendEmailConfig{
 			Recipients:  []string{url.ContactEmail},

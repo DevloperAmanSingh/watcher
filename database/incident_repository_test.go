@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,37 +108,178 @@ func TestIncidentCountRejectsBadInput(t *testing.T) {
 	}
 }
 
-// TestIncidentAddResolve covers the open/resolve lifecycle Count reports on.
-func TestIncidentAddResolve(t *testing.T) {
+// TestIncidentOpenResolveLifecycle covers the open/resolve cycle and, more
+// importantly, the boolean each returns. That value is what the alerting path
+// uses to decide whether to notify, so a wrong answer means either a missed
+// page or a duplicate one.
+func TestIncidentOpenResolveLifecycle(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 	repo := NewIncidentRepository(pool)
 
 	urlID := insertURL(t, pool, "https://flaky.example")
 
-	if err := repo.Add(ctx, urlID); err != nil {
-		t.Fatalf("Add: %v", err)
+	opened, err := repo.Open(ctx, urlID)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if !opened {
+		t.Fatal("Open reported no incident created on a URL with none open")
+	}
+	if n := countOpenIncidents(t, pool, urlID); n != 1 {
+		t.Fatalf("open incidents after Open = %d, want 1", n)
 	}
 
-	open := countOpenIncidents(t, pool, urlID)
-	if open != 1 {
-		t.Fatalf("open incidents after Add = %d, want 1", open)
+	// Opening again must be a silent no-op reporting false, so a replayed
+	// unhealthy result cannot page twice.
+	opened, err = repo.Open(ctx, urlID)
+	if err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	if opened {
+		t.Error("second Open reported an incident created; it would send a duplicate alert")
+	}
+	if n := countOpenIncidents(t, pool, urlID); n != 1 {
+		t.Errorf("open incidents after second Open = %d, want 1", n)
 	}
 
-	if err := repo.Resolve(ctx, urlID); err != nil {
+	resolved, err := repo.Resolve(ctx, urlID)
+	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-
-	if open = countOpenIncidents(t, pool, urlID); open != 0 {
-		t.Errorf("open incidents after Resolve = %d, want 0", open)
+	if !resolved {
+		t.Error("Resolve reported nothing closed while an incident was open")
+	}
+	if n := countOpenIncidents(t, pool, urlID); n != 0 {
+		t.Errorf("open incidents after Resolve = %d, want 0", n)
 	}
 
-	// Resolving again must not fail or reopen anything.
-	if err := repo.Resolve(ctx, urlID); err != nil {
+	// Resolving again must report false rather than erroring or reopening.
+	resolved, err = repo.Resolve(ctx, urlID)
+	if err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
-	if open = countOpenIncidents(t, pool, urlID); open != 0 {
-		t.Errorf("open incidents after second Resolve = %d, want 0", open)
+	if resolved {
+		t.Error("second Resolve reported a closure; it would send a duplicate recovery alert")
+	}
+
+	// A subsequent outage is a new incident, not a reopening of the old one.
+	opened, err = repo.Open(ctx, urlID)
+	if err != nil {
+		t.Fatalf("Open after resolve: %v", err)
+	}
+	if !opened {
+		t.Error("Open after a resolved incident reported nothing created")
+	}
+
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM incidents WHERE url_id = $1`, urlID).Scan(&total); err != nil {
+		t.Fatalf("counting incidents: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("total incidents = %d, want 2", total)
+	}
+}
+
+// TestIncidentOpenIsConcurrencySafe is the test that backs the exactly-once
+// claim. Many goroutines report the same URL unhealthy at once, exactly as the
+// event bus does when it dispatches each handler independently. Exactly one
+// must be told it opened the incident, because exactly one alert may be sent.
+func TestIncidentOpenIsConcurrencySafe(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	repo := NewIncidentRepository(pool)
+
+	urlID := insertURL(t, pool, "https://stampede.example")
+
+	const racers = 24
+
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		openings int
+		errs     []error
+	)
+
+	start := make(chan struct{})
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // release everyone at once to maximize overlap
+			opened, err := repo.Open(ctx, urlID)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			if opened {
+				openings++
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for _, err := range errs {
+		t.Errorf("Open returned an error under contention: %v", err)
+	}
+	if openings != 1 {
+		t.Errorf("%d of %d concurrent Open calls reported success, want exactly 1", openings, racers)
+	}
+	if n := countOpenIncidents(t, pool, urlID); n != 1 {
+		t.Errorf("open incidents = %d, want 1", n)
+	}
+}
+
+// TestIncidentResolveIsConcurrencySafe is the recovery-side equivalent.
+func TestIncidentResolveIsConcurrencySafe(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	repo := NewIncidentRepository(pool)
+
+	urlID := insertURL(t, pool, "https://recovery.example")
+	if _, err := repo.Open(ctx, urlID); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const racers = 24
+
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		closures int
+		errs     []error
+	)
+
+	start := make(chan struct{})
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			resolved, err := repo.Resolve(ctx, urlID)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			if resolved {
+				closures++
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for _, err := range errs {
+		t.Errorf("Resolve returned an error under contention: %v", err)
+	}
+	if closures != 1 {
+		t.Errorf("%d of %d concurrent Resolve calls reported success, want exactly 1", closures, racers)
 	}
 }
 

@@ -32,12 +32,18 @@ func (sl *PingSuccessfulListener) Handle(event core.Event) {
 		return
 	}
 
-	if url.Status == enums.UnHealthy {
-		incidentRepo := database.NewIncidentRepository(sl.DB)
-		if resolveErr := incidentRepo.Resolve(sl.ctx, url.Id); resolveErr != nil {
-			sl.logger.Error("failed to resolve incident",
-				"error", resolveErr, "url_id", url.Id, "url", url.Url)
-		}
+	// As on the outage path, the write decides the transition rather than the
+	// status read: whichever concurrent result actually closes the open
+	// incident owns the recovery notification, and the rest stay silent.
+	incidentRepo := database.NewIncidentRepository(sl.DB)
+	resolved, err := incidentRepo.Resolve(sl.ctx, url.Id)
+	if err != nil {
+		sl.logger.Error("failed to resolve incident",
+			"error", err, "url_id", url.Id, "url", url.Url)
+	}
+
+	if resolved {
+		sl.logger.Info("site recovered", "url_id", url.Id, "url", url.Url)
 
 		if mailErr := core.SendEmail(core.SendEmailConfig{
 			Recipients:  []string{url.ContactEmail},
