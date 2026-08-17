@@ -22,7 +22,7 @@ type ParentWorker struct {
 }
 
 func (pw *ParentWorker) Start() {
-	maxChildWorkers := env.FetchInt("MAXIMUM_CHILD_WORKERS")
+	maxChildWorkers := env.FetchInt("MAXIMUM_CHILD_WORKERS", 5)
 	if maxChildWorkers < 1 {
 		panic("MAXIMUM_CHILD_WORKERS must be greater than 0")
 	}
@@ -57,7 +57,7 @@ func (pw *ParentWorker) Work() {
 		log.Println(err)
 		return
 	}
-	maxPoolSize := env.FetchInt("MAXIMUM_WORK_POOL_SIZE")
+	maxPoolSize := env.FetchInt("MAXIMUM_WORK_POOL_SIZE", 25)
 	for i := 0; i < len(urlIds); i += maxPoolSize {
 		end := i + maxPoolSize
 		if end > len(urlIds) {
@@ -81,7 +81,7 @@ func (pw *ParentWorker) spawnChildWorkers(maxChildWorkers int) {
 }
 
 func NewParentWorker(ctx context.Context, redisClient *redis.Client, interval int, supervisor *supervisor.Supervisor) *ParentWorker {
-	bufferSize := env.FetchInt("MAXIMUM_WORK_POOL_SIZE")
+	bufferSize := env.FetchInt("MAXIMUM_WORK_POOL_SIZE", 25)
 	return &ParentWorker{
 		Ctx:                      ctx,
 		RedisClient:              redisClient,

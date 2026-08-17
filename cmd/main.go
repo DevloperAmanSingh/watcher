@@ -16,7 +16,9 @@ func main() {
 	ctx := context.Background()
 	ctx = context.WithoutCancel(ctx)
 
-	env.LoadEnv(".env")
+	if err := env.Load(".env"); err != nil {
+		log.Fatal(err)
+	}
 
 	newLogger := logger.New()
 	cmd := &cli.Command{

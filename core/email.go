@@ -25,7 +25,12 @@ func SendEmail(emailConfig SendEmailConfig) error {
 
 	message.SetBody(emailConfig.ContentType, emailConfig.Content)
 
-	dialer := gomail.NewDialer(env.FetchString("MAIL_HOST"), env.FetchInt("MAIL_PORT"), env.FetchString("MAIL_USERNAME"), env.FetchString("MAIL_PASSWORD"))
+	dialer := gomail.NewDialer(
+		env.FetchString("MAIL_HOST"),
+		env.FetchInt("MAIL_PORT", 587),
+		env.FetchString("MAIL_USERNAME", ""),
+		env.FetchString("MAIL_PASSWORD", ""),
+	)
 
 	if err := dialer.DialAndSend(message); err != nil {
 		return err

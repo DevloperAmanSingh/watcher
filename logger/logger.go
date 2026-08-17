@@ -8,7 +8,7 @@ import (
 )
 
 func New() *slog.Logger {
-	if env.FetchString("APP_ENV") == "dev" {
+	if env.FetchString("APP_ENV", "production") == "dev" {
 		return slog.New(tint.NewHandler(os.Stdout, &tint.Options{
 			Level:     slog.LevelDebug,
 			AddSource: true,

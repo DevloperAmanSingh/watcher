@@ -44,8 +44,9 @@ func Init(ctx context.Context, logger *slog.Logger) {
 
 func InitiateRedis(ctx context.Context, logger *slog.Logger) *redis.Client {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:         env.FetchString("REDIS_HOST"),
-		DB:           env.FetchInt("REDIS_DB"),
+		Addr:         env.FetchString("REDIS_HOST", "127.0.0.1:6379"),
+		Password:     env.FetchString("REDIS_PASS", ""),
+		DB:           env.FetchInt("REDIS_DB", 0),
 		DialTimeout:  10 * time.Second,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -56,14 +57,20 @@ func InitiateRedis(ctx context.Context, logger *slog.Logger) *redis.Client {
 
 	err := redisClient.Ping(ctx).Err()
 	if err != nil {
-		logger.Error("redis connection failed", "error", err, "addr", env.FetchString("REDIS_HOST"))
+		logger.Error("redis connection failed",
+			"error", err, "addr", env.FetchString("REDIS_HOST", "127.0.0.1:6379"))
 		panic("redis connection failed")
 	}
 	return redisClient
 }
 
 func InitiateDB(ctx context.Context, logger *slog.Logger) *pgxpool.Pool {
-	pool, err := pgxpool.New(ctx, fmt.Sprintf("postgres://%v:%v@%v:%v/%v", env.FetchString("DB_USER"), env.FetchString("DB_PASSWORD"), env.FetchString("DB_HOST"), env.FetchString("DB_PORT"), env.FetchString("DB_DATABASE")))
+	pool, err := pgxpool.New(ctx, fmt.Sprintf("postgres://%v:%v@%v:%v/%v",
+		env.FetchString("DB_USER"),
+		env.FetchString("DB_PASSWORD", ""),
+		env.FetchString("DB_HOST"),
+		env.FetchString("DB_PORT", "5432"),
+		env.FetchString("DB_DATABASE")))
 	if err != nil {
 		panic(fmt.Sprintf("pgxpool connection failed: %v", err))
 	}
