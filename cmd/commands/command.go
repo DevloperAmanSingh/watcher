@@ -30,11 +30,11 @@ func (cc *CommandContainer) Register(command Command) {
 }
 
 func (cc *CommandContainer) RegisterAll(logger *slog.Logger) {
-	cc.Register(NewAnalysisCommand(logger))
-	cc.Register(NewListCommand(logger))
-	cc.Register(NewRemoveCommand(logger))
-	cc.Register(NewAddCommand(logger))
 	cc.Register(NewGuardCommand(logger))
+	cc.Register(NewAddCommand(logger))
+	cc.Register(NewRemoveCommand(logger))
+	cc.Register(NewListCommand(logger))
+	cc.Register(NewAnalysisCommand(logger))
 }
 
 func (cc *CommandContainer) Initiate(logger *slog.Logger) []*cli.Command {
