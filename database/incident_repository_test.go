@@ -141,6 +141,42 @@ func TestIncidentAddResolve(t *testing.T) {
 	}
 }
 
+// TestOnlyOneOpenIncidentPerURL pins the partial unique index. A second
+// unresolved incident for the same URL must be rejected, while a URL may
+// accumulate any number of resolved ones.
+func TestOnlyOneOpenIncidentPerURL(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+
+	urlID := insertURL(t, pool, "https://constrained.example")
+
+	// Historical, resolved incidents are unconstrained.
+	insertIncidentAt(t, pool, urlID, 10*day)
+	insertIncidentAt(t, pool, urlID, 5*day)
+
+	insertOpenIncidentAt(t, pool, urlID, time.Hour)
+
+	_, err := pool.Exec(ctx, `INSERT INTO incidents (url_id) VALUES ($1)`, urlID)
+	if err == nil {
+		t.Fatal("a second unresolved incident was accepted; the unique index is not in effect")
+	}
+
+	// The same insert with ON CONFLICT DO NOTHING must be a silent no-op,
+	// since that is what makes opening an incident idempotent.
+	tag, err := pool.Exec(ctx,
+		`INSERT INTO incidents (url_id) VALUES ($1) ON CONFLICT DO NOTHING`, urlID)
+	if err != nil {
+		t.Fatalf("ON CONFLICT DO NOTHING returned an error: %v", err)
+	}
+	if n := tag.RowsAffected(); n != 0 {
+		t.Errorf("ON CONFLICT DO NOTHING inserted %d rows, want 0", n)
+	}
+
+	if open := countOpenIncidents(t, pool, urlID); open != 1 {
+		t.Errorf("open incidents = %d, want 1", open)
+	}
+}
+
 func countOpenIncidents(t *testing.T, pool *pgxpool.Pool, urlID int) int {
 	t.Helper()
 	var n int

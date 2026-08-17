@@ -99,15 +99,33 @@ func insertURL(t *testing.T, pool *pgxpool.Pool, target string) int {
 	return id
 }
 
-// insertIncidentAt backdates an incident so window boundaries can be exercised
-// without waiting for real time to pass.
+// insertIncidentAt backdates a resolved incident so window boundaries can be
+// exercised without waiting for real time to pass.
+//
+// It resolves the incident an hour after it opened, because only one
+// unresolved incident per URL may exist at a time — a past outage that never
+// ended is not a state the system can reach.
 func insertIncidentAt(t *testing.T, pool *pgxpool.Pool, urlID int, age time.Duration) {
+	t.Helper()
+
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO incidents (time, url_id, resolved_at)
+		 VALUES (NOW() - $1::interval, $2, NOW() - $1::interval + INTERVAL '1 hour')`,
+		fmt.Sprintf("%d seconds", int(age.Seconds())), urlID)
+	if err != nil {
+		t.Fatalf("inserting incident aged %s: %v", age, err)
+	}
+}
+
+// insertOpenIncidentAt backdates an incident that is still unresolved. At most
+// one may exist per URL.
+func insertOpenIncidentAt(t *testing.T, pool *pgxpool.Pool, urlID int, age time.Duration) {
 	t.Helper()
 
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO incidents (time, url_id) VALUES (NOW() - $1::interval, $2)`,
 		fmt.Sprintf("%d seconds", int(age.Seconds())), urlID)
 	if err != nil {
-		t.Fatalf("inserting incident aged %s: %v", age, err)
+		t.Fatalf("inserting open incident aged %s: %v", age, err)
 	}
 }
