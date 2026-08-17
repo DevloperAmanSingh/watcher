@@ -30,6 +30,7 @@ func (cc *CommandContainer) Register(command Command) {
 }
 
 func (cc *CommandContainer) RegisterAll(logger *slog.Logger) {
+	cc.Register(NewRemoveCommand(logger))
 	cc.Register(NewAddCommand(logger))
 	cc.Register(NewGuardCommand(logger))
 }
