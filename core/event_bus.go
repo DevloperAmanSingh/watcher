@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"log/slog"
 	"sync"
 )
@@ -33,14 +32,14 @@ func (bus *EventBusImpl) Subscribe(eventName string, handler EventHandler) {
 	bus.rwMutex.Lock()
 	defer bus.rwMutex.Unlock()
 	bus.handlers[eventName] = append(bus.handlers[eventName], handler)
-	bus.Logger().Info(fmt.Sprintf("Subscribing to %s event", eventName))
+	bus.Logger().Info("subscribed handler to event", "event", eventName)
 }
 
 func (bus *EventBusImpl) Dispatch(event Event) {
 	bus.rwMutex.RLock()
 	defer bus.rwMutex.RUnlock()
 	for _, handler := range bus.handlers[event.Name()] {
-		bus.Logger().Info(fmt.Sprintf("Dispatching %s event to listeners", event.Name()))
+		bus.Logger().Debug("dispatching event to handler", "event", event.Name())
 		go handler.Handle(event)
 	}
 }

@@ -56,8 +56,8 @@ func InitiateRedis(ctx context.Context, logger *slog.Logger) *redis.Client {
 
 	err := redisClient.Ping(ctx).Err()
 	if err != nil {
-		logger.Error("Redis connection failed", err)
-		panic(fmt.Sprintf("Redis connection failed"))
+		logger.Error("redis connection failed", "error", err, "addr", env.FetchString("REDIS_HOST"))
+		panic("redis connection failed")
 	}
 	return redisClient
 }
@@ -68,8 +68,11 @@ func InitiateDB(ctx context.Context, logger *slog.Logger) *pgxpool.Pool {
 		panic(fmt.Sprintf("pgxpool connection failed: %v", err))
 	}
 	if err := pool.Ping(ctx); err != nil {
-		logger.Error("pgxpool connection failed: ", err)
-		os.Exit(0)
+		logger.Error("database connection failed",
+			"error", err,
+			"host", env.FetchString("DB_HOST"),
+			"database", env.FetchString("DB_DATABASE"))
+		os.Exit(1)
 	}
 
 	fmt.Println("Connected to PostgreSQL database!")

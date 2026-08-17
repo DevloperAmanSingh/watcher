@@ -25,40 +25,40 @@ func (sl *PingUnSuccessfulListener) Handle(event core.Event) {
 	urlRepo := database.NewUrlRepository(sl.DB)
 	url, err := urlRepo.FindById(sl.ctx, e.UrlId)
 	if err != nil {
-		sl.logger.Error("Error finding url: ", err, e)
+		sl.logger.Error("failed to find url", "error", err, "url_id", e.UrlId)
 		return
 	}
 
 	//check if the previous status is healthy, if it is healthy, send email
 	if url.Status == enums.Healthy {
 		incidentRepo := database.NewIncidentRepository(sl.DB)
-		err := incidentRepo.Add(sl.ctx, url.Id)
-		if err != nil {
-			sl.logger.Error("Unable to log incident: ", err.Error(), url)
+		if incidentErr := incidentRepo.Add(sl.ctx, url.Id); incidentErr != nil {
+			sl.logger.Error("failed to open incident",
+				"error", incidentErr, "url_id", url.Id, "url", url.Url)
 		}
 
-		err = core.SendEmail(core.SendEmailConfig{
+		if mailErr := core.SendEmail(core.SendEmailConfig{
 			Recipients:  []string{url.ContactEmail},
 			Subject:     "Your Site is DOWN",
 			Content:     fmt.Sprintf("Your Site `%v` is DOWN. It went down at %v\n . Please check it out", url.Url, time.Now()),
 			ContentType: "text/plain",
-		})
-		if err != nil {
-			sl.logger.Error("Error sending monitoring alert email: ", err, e)
+		}); mailErr != nil {
+			sl.logger.Error("failed to send outage alert",
+				"error", mailErr, "url_id", url.Id, "url", url.Url)
 		}
 	}
 
 	urlRepository := database.NewUrlRepository(sl.DB)
-	err = urlRepository.UpdateStatus(sl.ctx, e.UrlId, enums.UnHealthy)
-	if err != nil {
-		sl.logger.Error(err.Error(), e)
+	if err = urlRepository.UpdateStatus(sl.ctx, e.UrlId, enums.UnHealthy); err != nil {
+		sl.logger.Error("failed to update url status",
+			"error", err, "url_id", e.UrlId, "status", enums.UnHealthy.ToString())
 		return
 	}
 
 	urlStatusRepo := database.NewUrlStatusRepository(sl.DB)
-	err = urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy)
-	if err != nil {
-		sl.logger.Error(err.Error(), e)
+	if err = urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy); err != nil {
+		sl.logger.Error("failed to record check result",
+			"error", err, "url_id", e.UrlId, "healthy", e.Healthy)
 		return
 	}
 }

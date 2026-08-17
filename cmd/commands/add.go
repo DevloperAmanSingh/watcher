@@ -92,7 +92,7 @@ func (mc *AddCommand) Action(ctx context.Context, cmd CommandContext) error {
 	)
 
 	if err != nil {
-		mc.Log.Error("Error adding URL", err)
+		mc.Log.Error("failed to add url", "error", err, "url", url)
 		fmt.Printf("Error adding url")
 		return err
 	}
@@ -100,7 +100,10 @@ func (mc *AddCommand) Action(ctx context.Context, cmd CommandContext) error {
 	redisClient := InitiateRedis(ctx, mc.Log)
 	err = RefreshRedisInterval(ctx, redisClient, pool, parsedFrequency)
 	if err != nil {
-		mc.Log.Error("Error adding url to redis", err)
+		mc.Log.Error("failed to sync url to redis",
+			"error", err,
+			"url_id", id,
+			"frequency", parsedFrequency.ToString())
 		fmt.Printf("Error adding url to redis")
 		return err
 	}

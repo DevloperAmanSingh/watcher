@@ -24,39 +24,39 @@ func (sl *PingSuccessfulListener) Handle(event core.Event) {
 	urlRepo := database.NewUrlRepository(sl.DB)
 	url, err := urlRepo.FindById(sl.ctx, e.UrlId)
 	if err != nil {
-		sl.logger.Error("Error finding url: ", err, e)
+		sl.logger.Error("failed to find url", "error", err, "url_id", e.UrlId)
 		return
 	}
 
 	if url.Status == enums.UnHealthy {
 		incidentRepo := database.NewIncidentRepository(sl.DB)
-		err := incidentRepo.Resolve(sl.ctx, url.Id)
-		if err != nil {
-			sl.logger.Error("Unable to log incident as resolved: ", err.Error(), url)
+		if resolveErr := incidentRepo.Resolve(sl.ctx, url.Id); resolveErr != nil {
+			sl.logger.Error("failed to resolve incident",
+				"error", resolveErr, "url_id", url.Id, "url", url.Url)
 		}
 
-		err = core.SendEmail(core.SendEmailConfig{
+		if mailErr := core.SendEmail(core.SendEmailConfig{
 			Recipients:  []string{url.ContactEmail},
 			Subject:     "Your Site is now UP",
 			Content:     fmt.Sprintf("Your Site `%v` is UP. It went up at %v. Good work", url.Url, time.Now()),
 			ContentType: "text/plain",
-		})
-		if err != nil {
-			sl.logger.Error("Error sending monitoring alert email: ", err, e)
+		}); mailErr != nil {
+			sl.logger.Error("failed to send recovery alert",
+				"error", mailErr, "url_id", url.Id, "url", url.Url)
 		}
 	}
 
 	urlStatusRepo := database.NewUrlStatusRepository(sl.DB)
-	err = urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy)
-	if err != nil {
-		sl.logger.Error(err.Error(), e)
+	if err = urlStatusRepo.Add(sl.ctx, e.UrlId, e.Healthy); err != nil {
+		sl.logger.Error("failed to record check result",
+			"error", err, "url_id", e.UrlId, "healthy", e.Healthy)
 		return
 	}
 
 	urlRepository := database.NewUrlRepository(sl.DB)
-	err = urlRepository.UpdateStatus(sl.ctx, e.UrlId, enums.Healthy)
-	if err != nil {
-		sl.logger.Error(err.Error(), e)
+	if err = urlRepository.UpdateStatus(sl.ctx, e.UrlId, enums.Healthy); err != nil {
+		sl.logger.Error("failed to update url status",
+			"error", err, "url_id", e.UrlId, "status", enums.Healthy.ToString())
 		return
 	}
 }

@@ -57,7 +57,7 @@ func Analysis(ctx context.Context, logger *slog.Logger, urlId int) {
 
 	url, err := urlRepository.FindById(ctx, urlId)
 	if err != nil {
-		logger.Error("Unable to find site: "+err.Error(), urlId)
+		logger.Error("unable to find site", "error", err, "url_id", urlId)
 	}
 
 	//check the last downtime and subtract if from now
@@ -65,7 +65,7 @@ func Analysis(ctx context.Context, logger *slog.Logger, urlId int) {
 	recentDownTime = getRecentDownTime(ctx, &url, urlStatusRepository, logger)
 	lastCheckStatus, err := urlStatusRepository.GetLastStatus(ctx, url.Id)
 	if err != nil {
-		logger.Error("Unable to fetch last check status: "+err.Error(), url.Id)
+		logger.Error("unable to fetch last check status", "error", err, "url_id", url.Id)
 	}
 
 	fmt.Printf("URL: %s\n", url.Url)
@@ -93,7 +93,8 @@ func Analysis(ctx context.Context, logger *slog.Logger, urlId int) {
 			if errors.Is(err, pgx.ErrNoRows) {
 				incidentCount = 0
 			} else {
-				logger.Error("Unable to fetch incident count: "+err.Error(), url.Id)
+				logger.Error("unable to fetch incident count",
+					"error", err, "url_id", url.Id, "days", days)
 			}
 		}
 		var label string
@@ -117,7 +118,7 @@ func getRecentDownTime(ctx context.Context, url *database.Url, urlStatusReposito
 		recentDownTimeUrlStatus, err = urlStatusRepository.GetRecentStatus(ctx, url.Id, true)
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		logger.Error("Unable to fetch most recent downtime: "+err.Error(), url.Id)
+		logger.Error("unable to fetch most recent status change", "error", err, "url_id", url.Id)
 	}
 
 	if recentDownTimeUrlStatus.UrlId == 0 {
